@@ -42,6 +42,14 @@ function loadConfig(env = process.env) {
       timeout: integer('NATS_CONNECT_TIMEOUT', 10000, 1)
     }
   };
+  const inputFilter = get('INPUT_FILTER', '').trim();
+  if (inputFilter) {
+    try {
+      config.inputFilter = new Function('msg', '"use strict"; return (\n' + inputFilter + '\n);');
+    } catch {
+      throw new Error('INPUT_FILTER must be a valid JavaScript expression.');
+    }
+  }
   for (const [name, value] of Object.entries({NATS_STREAM: config.stream, NATS_CONSUMER: config.consumer, POSTGRES_URL: config.postgres.connectionString})) {
     if (!value) throw new Error(name + ' is required.');
   }

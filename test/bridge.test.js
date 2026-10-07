@@ -7,6 +7,59 @@ const {createWriter} = require('../database');
 const {processMessage} = require('../processor');
 const env = {NATS_STREAM: 'events', NATS_CONSUMER: 'postgres', POSTGRES_URL: 'postgres://localhost/db'};
 
+test('input filter compiles expressions and rejects invalid syntax at startup', () => {
+  const config = loadConfig({...env, INPUT_FILTER: 'msg.action === "update"'});
+  assert.equal(config.inputFilter({action: 'update'}), true);
+  assert.equal(config.inputFilter({action: 'delete'}), false);
+  for (const value of [undefined, '', '  ']) {
+    assert.equal(loadConfig({...env, INPUT_FILTER: value}).inputFilter, undefined);
+  }
+  assert.throws(() => loadConfig({...env, INPUT_FILTER: 'msg.action ==='}), /INPUT_FILTER/);
+});
+
+test('input filter sees original message before output selection and prefix resolution', async () => {
+  const calls = [];
+  let parsed = 0;
+  const message = {json: () => {parsed++; return {action: 'update', deviceId: 'lamp', state: {temp: 10}};},
+    timestampNanos: 0n, ack: () => calls.push('ack')};
+  await processMessage(message, {write: async (time, rows) => calls.push(rows)},
+    loadConfig({...env, INPUT_FILTER: 'msg.action === "update" && msg.state.temp > 0',
+      TOPIC_PREFIX: 'house/{deviceId}', OUTPUT_KEYS: 'state'}));
+  assert.deepEqual(calls, [[['house/lamp/temp', '10']], 'ack']);
+  assert.equal(parsed, 1);
+});
+
+test('falsy filter results acknowledge without resolving prefixes or writing', async () => {
+  for (const expression of ['false', '0', 'null', 'undefined', '""', 'msg.action === "update"']) {
+    const calls = [];
+    await processMessage({json: () => ({action: 'delete'}), ack: () => calls.push('ack')},
+      {write: async () => calls.push('write')},
+      loadConfig({...env, INPUT_FILTER: expression, TOPIC_PREFIX: '{missing}'}));
+    assert.deepEqual(calls, ['ack']);
+  }
+});
+
+test('truthy non-boolean filter results proceed to writing', async () => {
+  const calls = [];
+  await processMessage({json: () => ({a: 1}), timestampNanos: 0n, ack: () => calls.push('ack')},
+    {write: async () => calls.push('write')}, loadConfig({...env, INPUT_FILTER: 'msg.a'}));
+  assert.deepEqual(calls, ['write', 'ack']);
+});
+
+test('filter evaluation errors and malformed JSON terminate without writing or acknowledgement', async () => {
+  for (const json of [() => ({secret: 'private'}), () => {throw Error('private');}]) {
+    const calls = [];
+    const errors = [];
+    await processMessage({json, subject: 'events', seq: 42, ack: () => calls.push('ack'), term: () => calls.push('term')},
+      {write: async () => calls.push('write')}, loadConfig({...env, INPUT_FILTER: 'msg.missing.value'}),
+      {error: text => errors.push(text)});
+    assert.deepEqual(calls, ['term']);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /subject=events sequence=42/);
+    assert.doesNotMatch(errors[0], /private/);
+  }
+});
+
 test('flatten nested objects, arrays, escaped keys, empty containers and typed leaves', () => {
   assert.deepEqual(flatten({sensor: {temperature: 22.5, online: true, missing: null}, a: [false, {}, []], 'x/y~z': '', 'a.b': 1}, '/house/'), [
     ['house/sensor/temperature', '22.5'], ['house/sensor/online', 'true'], ['house/sensor/missing', null],

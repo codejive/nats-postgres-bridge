@@ -31,6 +31,8 @@ Nested objects are traversed recursively, arrays use zero-based index segments, 
 
 ## Environment variables
 
+`INPUT_FILTER` is a synchronous JavaScript expression evaluated once per incoming message, with the parsed JSON value available as `msg`. For example, `INPUT_FILTER=msg.action === "update"` stores only update messages. Truthy results continue to prefix resolution and output selection; falsy results acknowledge and skip the message without writing to PostgreSQL. Unset, empty or whitespace-only filters accept all messages. Syntax errors fail startup; evaluation errors are logged by subject and sequence and terminate delivery without writing. Use optional chaining for fields that may be absent, such as `msg.state?.online === true`. The expression runs as trusted Node.js code with access to globals such as `process`; it is not sandboxed. Use synchronous expressions without side effects.
+
 `OUTPUT_KEYS` selects a comma-separated list of slash-separated paths from the original message. For example, with `{"deviceId":"lamp","state":{"temp":"10","humidity":"65","battery":"99"}}`, `OUTPUT_KEYS=state` stores `temp`, `humidity` and `battery`; `OUTPUT_KEYS=state/temp,deviceId` stores `temp` and `deviceId`. `TOPIC_PREFIX` is prepended as usual, and its placeholders can reference any original message field. Selected objects and arrays are flattened relative to the selected container; selected scalar values (including null) use the final path segment as their key. Use `~1` for `/` and `~0` for `~` in property names; dots are literal. Whitespace around selections and empty comma-separated entries are ignored. Missing paths are skipped, and empty containers produce no rows. Selections are processed in listed order; overlapping or repeated selections can produce duplicate rows. When unset or empty, all original message fields are flattened as before.
 
 All configuration comes from environment variables. Empty variables use their fallback/default. Boolean values accept `true/false`, `1/0`, `yes/no`, and `on/off`.
@@ -50,6 +52,7 @@ All configuration comes from environment variables. Empty variables use their fa
 | NATS_STREAM / NATS_CONSUMER | required | Existing stream and durable pull consumer. |
 | NATS_BATCH_SIZE | 100 | Consumer buffer size; processing is sequential. |
 | TOPIC_PREFIX | empty | Path prefix with optional `{path/to/value}` message placeholders. |
+| INPUT_FILTER | empty | JavaScript expression using `msg`; only truthy results are stored. |
 | OUTPUT_KEYS | empty | Comma-separated message paths to output; empty selects the whole message. |
 | POSTGRES_URL | required | PostgreSQL connection URL; `DATABASE_URL` fallback alias. URL supports PostgreSQL TLS options. |
 | POSTGRES_SCHEMA | public | Schema name. |
