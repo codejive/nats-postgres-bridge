@@ -37,7 +37,7 @@ Nested objects are traversed recursively, arrays use zero-based index segments, 
 
 All configuration comes from environment variables. Empty variables use their fallback/default. Boolean values accept `true/false`, `1/0`, `yes/no`, and `on/off`.
 
-Set `OUTPUT_DRY_RUN=true` to parse, filter and flatten messages without connecting to PostgreSQL or writing data. `POSTGRES_URL` is optional in this mode. No acknowledgements are sent, including progress, negative and terminal acknowledgements for filtered or invalid messages. `VERBOSE=true` logs dry-run message sequences and row counts. Messages remain pending and may be redelivered; the consumer's `max_ack_pending` and delivery limits still apply.
+Set `OUTPUT_DRY_RUN=true` to parse, filter and flatten messages without connecting to PostgreSQL or writing data. `POSTGRES_URL` is optional in this mode. No acknowledgements are sent, including progress, negative and terminal acknowledgements for filtered or invalid messages. `VERBOSE=true` logs dry-run message sequences, row counts and each would-be inserted row. Messages remain pending and may be redelivered; the consumer's `max_ack_pending` and delivery limits still apply.
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ Set `OUTPUT_DRY_RUN=true` to parse, filter and flatten messages without connecti
 | POSTGRES_QUERY_TIMEOUT | 30000 | Client query and server statement timeout in milliseconds. |
 | RETRY_DELAY | 3000 | Delayed negative acknowledgement and consumption backoff in milliseconds. |
 | SHUTDOWN_TIMEOUT | 5000 | Maximum graceful shutdown duration in milliseconds. |
-| VERBOSE | false | Log successful message sequence and row count. |
+| VERBOSE | false | Log each prepared row before insertion (also in dry runs), plus message sequence and row count. Rows are JSON arrays in timestamp, topic, value column order, preserving strings and nulls. |
 
 Choose only one NATS authentication method. URLs and message values are not logged. Schema, table, and column names are safely quoted; values are parameterized.
 

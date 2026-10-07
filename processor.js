@@ -33,6 +33,11 @@ async function processMessage(message, writer, config, logger = console) {
     return;
   }
   const timestamp = receiptTimestamp(message.timestampNanos);
+  if (config.verbose) {
+    for (const [topic, value] of rows) {
+      logger.log(`${config.outputDryRun ? 'Dry run row' : 'Insert row'} sequence=${message.seq} ${JSON.stringify([timestamp, topic, value])}`);
+    }
+  }
   if (!config.outputDryRun) {
     await writer.write(timestamp, rows);
     message.ack();

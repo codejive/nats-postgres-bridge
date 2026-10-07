@@ -33,6 +33,31 @@ test('dry run processes valid, empty, filtered and invalid messages without writ
   assert.ok(logs.includes('Dry run sequence=42 rows=0'));
 });
 
+test('verbose logs exact prepared rows before writing, including dry runs', async () => {
+  for (const outputDryRun of [false, true]) {
+    for (const verbose of [false, true]) {
+      const logs = [];
+      const writes = [];
+      const config = loadConfig({...env, OUTPUT_DRY_RUN: String(outputDryRun), VERBOSE: String(verbose),
+        TOPIC_PREFIX: 'house/{deviceId}', OUTPUT_KEYS: 'state'});
+      const message = {json: () => ({deviceId: 'lamp', state: {text: 'a\n"b', nil: null, enabled: false}}),
+        timestampNanos: 1700000000123456789n, seq: 42, ack: () => {}};
+      await processMessage(message, {write: async (timestamp, rows) => {
+        writes.push([timestamp, rows]);
+        assert.equal(logs.length, verbose ? 3 : 0);
+      }}, config, {log: text => logs.push(text)});
+      const expected = [
+        ['2023-11-14T22:13:20.123457Z', 'house/lamp/text', 'a\n"b'],
+        ['2023-11-14T22:13:20.123457Z', 'house/lamp/nil', null],
+        ['2023-11-14T22:13:20.123457Z', 'house/lamp/enabled', 'false']
+      ];
+      assert.deepEqual(logs.slice(0, 3), verbose ? expected.map(row =>
+        `${outputDryRun ? 'Dry run row' : 'Insert row'} sequence=42 ${JSON.stringify(row)}`) : []);
+      assert.deepEqual(writes, outputDryRun ? [] : [[expected[0][0], expected.map(row => row.slice(1))]]);
+    }
+  }
+});
+
 test('dry run consumes NATS without constructing a pool or sending progress acknowledgements', async () => {
   const {run} = require('../bridge');
   const unexpected = () => assert.fail('dry run must not access PostgreSQL or acknowledge');
