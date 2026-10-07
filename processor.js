@@ -3,7 +3,7 @@ const {flatten, receiptTimestamp} = require('./flatten');
 async function processMessage(message, writer, config, logger = console) {
   let rows;
   try {
-    rows = flatten(message.json(), config.prefix);
+    rows = flatten(message.json(), config.prefix, config.outputKeys);
   } catch {
     logger.error(`Invalid JSON object or topic prefix placeholder: subject=${message.subject} sequence=${message.seq}; terminating delivery.`);
     message.term();

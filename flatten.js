@@ -1,6 +1,6 @@
 'use strict';
 
-function flatten(object, prefix = '') {
+function flatten(object, prefix = '', outputKeys = []) {
   if (!object || typeof object !== 'object' || Array.isArray(object)) throw new Error('Message root must be a JSON object.');
   const rows = [];
   const escape = key => key.replace(/~/g, '~0').replace(/\//g, '~1');
@@ -25,7 +25,25 @@ function flatten(object, prefix = '') {
     }
     return escape(String(value));
   }).replace(/^\/+|\/+$/g, '');
-  for (const [key, value] of Object.entries(object)) visit(value, [...(base ? [base] : []), escape(key)]);
+  const basePath = base ? [base] : [];
+  if (outputKeys.length === 0) {
+    for (const [key, value] of Object.entries(object)) visit(value, [...basePath, escape(key)]);
+  } else {
+    for (const path of outputKeys) {
+      const segments = path.split('/').map(segment => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+      let value = object;
+      let found = true;
+      for (const key of segments) {
+        if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {
+          found = false;
+          break;
+        }
+        value = value[key];
+      }
+      if (!found) continue;
+      visit(value, value !== null && typeof value === 'object' ? basePath : [...basePath, escape(segments.at(-1))]);
+    }
+  }
   return rows;
 }
 

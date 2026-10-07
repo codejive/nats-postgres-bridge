@@ -37,6 +37,43 @@ test('topic prefix rejects missing, inherited, null and container values', () =>
   }
 });
 
+test('output keys select containers relative to their roots and scalars by their final segment', () => {
+  const object = {deviceId: 'lamp', state: {temp: '10', humidity: '65', battery: '99', nested: {online: false}}};
+  assert.deepEqual(flatten(object, 'house/{deviceId}', ['state']), [
+    ['house/lamp/temp', '10'], ['house/lamp/humidity', '65'], ['house/lamp/battery', '99'],
+    ['house/lamp/nested/online', 'false']
+  ]);
+  assert.deepEqual(flatten(object, '/house/', ['state/temp', 'deviceId']), [
+    ['house/temp', '10'], ['house/deviceId', 'lamp']
+  ]);
+  assert.deepEqual(flatten(object, '', []), flatten(object));
+});
+
+test('output paths handle arrays, escaped keys, null and missing paths', () => {
+  const object = {items: [{value: 0}, false], 'x/y~z': {'a/b': null}, empty: {}, nil: null, 'a.b': ''};
+  assert.deepEqual(flatten(object, '', ['items', 'x~1y~0z', 'nil', 'a.b']), [
+    ['0/value', '0'], ['1', 'false'], ['a~1b', null], ['nil', null], ['a.b', '']
+  ]);
+  assert.deepEqual(flatten(object, '', ['items/0/value', 'x~1y~0z/a~1b']), [['value', '0'], ['a~1b', null]]);
+  assert.deepEqual(flatten(object, '', ['missing', 'nil/child', 'items/1/child', 'toString', 'empty']), []);
+});
+
+test('configured output keys reach the writer with a prefix resolved from unselected fields', async () => {
+  const calls = [];
+  const message = {json: () => ({deviceId: 'lamp', state: {temp: 10}}), timestampNanos: 0n,
+    ack: () => calls.push('ack')};
+  await processMessage(message, {write: async (time, rows) => calls.push(rows)},
+    loadConfig({...env, TOPIC_PREFIX: 'house/{deviceId}', OUTPUT_KEYS: ' state, state/temp '}));
+  assert.deepEqual(calls, [[['house/lamp/temp', '10'], ['house/lamp/temp', '10']], 'ack']);
+});
+
+test('output key configuration trims paths and defaults empty selections to the whole message', () => {
+  assert.deepEqual(loadConfig({...env, OUTPUT_KEYS: ' state, device/id, ,'}).outputKeys, ['state', 'device/id']);
+  for (const value of [undefined, '', '  ', ', ,']) {
+    assert.deepEqual(loadConfig({...env, OUTPUT_KEYS: value}).outputKeys, []);
+  }
+});
+
 test('expanded prefixes reach the writer before acknowledgement; unresolved prefixes terminate without writing', async () => {
   const calls = [];
   const message = {json: () => ({device: {id: 'lamp'}, state: true}), timestampNanos: 0n,

@@ -14,6 +14,7 @@ function loadConfig(env = process.env) {
   };
   const config = {
     prefix: get('TOPIC_PREFIX', ''),
+    outputKeys: get('OUTPUT_KEYS', '').split(',').map(value => value.trim()).filter(Boolean),
     verbose: bool('VERBOSE', false),
     stream: get('NATS_STREAM'),
     consumer: get('NATS_CONSUMER'),
