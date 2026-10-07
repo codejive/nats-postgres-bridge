@@ -2,8 +2,6 @@
 
 Consume JSON objects from an existing NATS JetStream durable pull consumer and store their leaf values in PostgreSQL. Each message becomes triples of the original NATS server receipt timestamp, slash-separated JSON path, and text value. Empty objects and arrays are dropped.
 
-NATS connection configuration and lifecycle handling follow [ewelink-nats-bridge](https://github.com/codejive/ewelink-nats-bridge); Node tests and Docker workflows follow the same project, adapted from [ewelink-mqtt-bridge](https://github.com/codejive/ewelink-mqtt-bridge).
-
 ## Setup
 
 1. Provision PostgreSQL using [schema.sql](schema.sql), or create an equivalent table with your configured names. The column types must be `timestamptz`, `text`, `text`; the value column must allow SQL NULL. Grant the bridge account SELECT and INSERT access. The bridge validates columns but does not create or alter tables.
@@ -11,7 +9,7 @@ NATS connection configuration and lifecycle handling follow [ewelink-nats-bridge
 3. Copy `.env.example` to `.env`, and configure service URLs, stream and consumer names. NATS and PostgreSQL must be reachable from the bridge; container localhost refers to that container.
 4. Run `npm ci`, then `node --env-file=.env bridge.js`, or run `docker compose up -d --build`. `npm start` reads the process environment; it does not load `.env` automatically.
 
-For the eWeLink NATS producer, capture raw JSON subjects such as `ewelink.*.state.raw`, and optionally set `PUBLISH_RAW_STATE=only`. Raw payloads contain the full action, including `deviceid` and `params`; individual-key publications are not JSON objects. The source subject is not added to stored keys. Use a prefix such as `ewelink/{deviceid}/state` if you need a namespace per device.
+Configure the stream and consumer to capture subjects carrying JSON objects from your producer. The source subject is not added to stored keys. Use `TOPIC_PREFIX` with a message field placeholder, such as `house/{deviceId}/state`, if you need a namespace per device.
 
 ## Data mapping
 
@@ -77,6 +75,6 @@ NATS reconnects automatically. Loss of the connection after retries are exhauste
 
 `npm test` runs the Node built-in test suite. Optional service integration tests run when `NATS_TEST_URL` and `POSTGRES_TEST_URL` are both set; use a dedicated test database and NATS server. They provision and remove isolated test resources.
 
-Build Check runs on main pushes, pull requests, and manual dispatch: Node 24, npm ci, syntax checks, tests, and Docker builds for linux/amd64 and linux/arm64. Docker Release publishes `v*` tags using `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `DOCKERHUB_NAMESPACE`, matching the sibling workflows. Configure the namespace before publishing.
+Build Check runs on main pushes, pull requests, and manual dispatch: Node 24, npm ci, syntax checks, tests, and Docker builds for linux/amd64 and linux/arm64. Docker Release publishes `v*` tags using the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets and the `DOCKERHUB_NAMESPACE` repository variable. Configure the namespace before publishing.
 
 Licensed under Apache-2.0; see [LICENSE](LICENSE).
