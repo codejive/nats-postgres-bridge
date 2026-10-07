@@ -6,6 +6,7 @@ const {setTimeout: delay} = require('node:timers/promises');
 const {loadConfig} = require('./config');
 const {createWriter} = require('./database');
 const {processMessage} = require('./processor');
+const {formatError} = require('./errors');
 
 async function run(config, dependencies = {}) {
   const pool = config.outputDryRun ? undefined : new (dependencies.Pool || Pool)(config.postgres);
@@ -13,6 +14,7 @@ async function run(config, dependencies = {}) {
   let messages;
   let stopping = false;
   let shutdownTimer;
+  let stage = 'validating PostgreSQL target columns';
   const abort = new AbortController();
   const stop = (code = 0) => {
     if (stopping) return;
@@ -26,7 +28,7 @@ async function run(config, dependencies = {}) {
   const onSignal = () => stop();
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
-  pool?.on('error', () => { console.error('PostgreSQL pool connection failed.'); stop(1); });
+  pool?.on('error', error => { console.error(`PostgreSQL pool connection failed: ${formatError(error, config)}`); stop(1); });
   try {
     const writer = pool && createWriter(pool, config);
     if (writer) await writer.validate();
@@ -34,14 +36,17 @@ async function run(config, dependencies = {}) {
     if (stopping) return;
     const options = {...config.natsOptions};
     if (config.natsCreds) options.authenticator = credsAuthenticator(Buffer.from(config.natsCreds));
+    stage = 'connecting to NATS';
     nc = await (dependencies.connect || connect)(options);
     if (stopping) return;
-    nc.closed().then(() => { if (!stopping) { console.error('NATS connection closed.'); stop(1); } });
+    nc.closed().then(error => { if (!stopping) { console.error(`NATS connection closed${error ? ': ' + formatError(error, config) : '.'}`); stop(1); } });
     const monitoring = (async () => {
       for await (const status of nc.status()) console.log(`NATS ${status.type}`);
     })();
     monitoring.catch(() => stop(1));
+    stage = 'looking up JetStream consumer';
     const consumer = await (dependencies.jetstream || jetstream)(nc).consumers.get(config.stream, config.consumer);
+    stage = 'validating JetStream consumer configuration';
     const info = await consumer.info();
     if (info.config.ack_policy !== 'explicit' || info.config.deliver_subject || !info.config.durable_name) {
       throw new Error('An existing durable pull consumer with explicit acknowledgements is required.');
@@ -49,6 +54,7 @@ async function run(config, dependencies = {}) {
     const ackWaitMillis = Math.floor((info.config.ack_wait || 30000000000) / 1000000);
     if (ackWaitMillis < 300) throw new Error('Consumer ack_wait must be at least 300 milliseconds.');
     while (!stopping) {
+      stage = 'consuming JetStream messages';
       messages = await consumer.consume({max_messages: config.batchSize});
       const activeMessages = messages;
       if (stopping) { messages.stop(); break; }
@@ -64,8 +70,8 @@ async function run(config, dependencies = {}) {
         const progress = config.outputDryRun ? undefined : setInterval(() => message.working(), Math.max(100, Math.floor(ackWaitMillis / 3)));
         try {
           await processMessage(message, writer, config);
-        } catch {
-          console.error(`Message write failed: sequence=${message.seq}; will retry.`);
+        } catch (error) {
+          console.error(`Message write failed: sequence=${message.seq}; will retry: ${formatError(error, config)}`);
           if (!config.outputDryRun) message.nak(config.retryDelay);
           await delay(config.retryDelay, undefined, {signal: abort.signal}).catch(() => {});
         } finally {
@@ -76,7 +82,7 @@ async function run(config, dependencies = {}) {
     }
   } catch (error) {
     stop(1);
-    throw error;
+    throw new Error(`Bridge failed while ${stage}`, {cause: error});
   } finally {
     stopping = true;
     messages?.stop();
@@ -94,8 +100,8 @@ if (require.main === module) {
   let config;
   try { config = loadConfig(); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
-  if (config) run(config).catch(() => {
-    console.error('Bridge failed; check service connectivity, table types and consumer configuration.');
+  if (config) run(config).catch(error => {
+    console.error(formatError(error, config));
     process.exitCode = 1;
   });
 }
