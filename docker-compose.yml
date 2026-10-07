@@ -1,0 +1,7 @@
+services:
+  nats-postgres-bridge:
+    build: .
+    image: nats-postgres-bridge:local
+    restart: unless-stopped
+    env_file:
+      - .env

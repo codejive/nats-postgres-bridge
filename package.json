@@ -1,0 +1,22 @@
+{
+  "name": "nats-postgres-bridge",
+  "version": "0.1.0",
+  "description": "Consume NATS JetStream JSON objects into PostgreSQL",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "dependencies": {
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0",
+    "pg": "^8.23.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
