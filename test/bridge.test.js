@@ -7,6 +7,56 @@ const {createWriter} = require('../database');
 const {processMessage} = require('../processor');
 const env = {NATS_STREAM: 'events', NATS_CONSUMER: 'postgres', POSTGRES_URL: 'postgres://localhost/db'};
 
+test('dry run defaults off, validates booleans and does not require a database URL', () => {
+  assert.equal(loadConfig(env).outputDryRun, false);
+  assert.equal(loadConfig({...env, POSTGRES_URL: '', OUTPUT_DRY_RUN: 'true'}).outputDryRun, true);
+  assert.throws(() => loadConfig({...env, OUTPUT_DRY_RUN: 'maybe'}), /OUTPUT_DRY_RUN/);
+  assert.throws(() => loadConfig({...env, POSTGRES_URL: '', OUTPUT_DRY_RUN: 'false'}), /POSTGRES_URL/);
+});
+
+test('dry run processes valid, empty, filtered and invalid messages without writes or acknowledgements', async () => {
+  const unexpected = () => assert.fail('dry run must not write or acknowledge');
+  const logs = [];
+  const logger = {log: text => logs.push(text), error: () => {}};
+  for (const [json, overrides] of [
+    [() => ({a: 1}), {}], [() => ({}), {}],
+    [() => ({a: 1}), {INPUT_FILTER: 'false'}],
+    [() => ({a: 1}), {INPUT_FILTER: 'msg.missing.value'}],
+    [() => {throw Error('invalid JSON');}, {}], [() => [], {}],
+    [() => ({a: 1}), {TOPIC_PREFIX: '{missing}'}]
+  ]) {
+    await processMessage({json, timestampNanos: 0n, seq: 42,
+      ack: unexpected, term: unexpected, nak: unexpected, working: unexpected},
+      {write: unexpected}, loadConfig({...env, OUTPUT_DRY_RUN: 'true', VERBOSE: 'true', ...overrides}), logger);
+  }
+  assert.ok(logs.includes('Dry run sequence=42 rows=1'));
+  assert.ok(logs.includes('Dry run sequence=42 rows=0'));
+});
+
+test('dry run consumes NATS without constructing a pool or sending progress acknowledgements', async () => {
+  const {run} = require('../bridge');
+  const unexpected = () => assert.fail('dry run must not access PostgreSQL or acknowledge');
+  let drained = false;
+  const message = {json: () => ({a: 1}), timestampNanos: 0n,
+    ack: unexpected, term: unexpected, nak: unexpected, working: unexpected};
+  const messages = {stop: () => {}, status: async function* () {},
+    [Symbol.asyncIterator]: async function* () {
+      yield message;
+      // Keep consumption active beyond the progress acknowledgement interval.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      process.emit('SIGTERM');
+    }};
+  const consumer = {info: async () => ({config: {ack_policy: 'explicit', durable_name: 'postgres', ack_wait: 300000000}}),
+    consume: async () => messages};
+  const nc = {closed: () => new Promise(() => {}), status: async function* () {},
+    isClosed: () => false, drain: async () => {drained = true;}};
+  await run(loadConfig({...env, POSTGRES_URL: '', OUTPUT_DRY_RUN: 'true'}), {
+    Pool: class {constructor() {unexpected();}}, connect: async () => nc,
+    jetstream: () => ({consumers: {get: async () => consumer}})
+  });
+  assert.equal(drained, true);
+});
+
 test('input filter compiles expressions and rejects invalid syntax at startup', () => {
   const config = loadConfig({...env, INPUT_FILTER: 'msg.action === "update"'});
   assert.equal(config.inputFilter({action: 'update'}), true);

@@ -8,7 +8,7 @@ const {createWriter} = require('./database');
 const {processMessage} = require('./processor');
 
 async function run(config, dependencies = {}) {
-  const pool = new (dependencies.Pool || Pool)(config.postgres);
+  const pool = config.outputDryRun ? undefined : new (dependencies.Pool || Pool)(config.postgres);
   let nc;
   let messages;
   let stopping = false;
@@ -26,10 +26,11 @@ async function run(config, dependencies = {}) {
   const onSignal = () => stop();
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
-  pool.on('error', () => { console.error('PostgreSQL pool connection failed.'); stop(1); });
+  pool?.on('error', () => { console.error('PostgreSQL pool connection failed.'); stop(1); });
   try {
-    const writer = createWriter(pool, config);
-    await writer.validate();
+    const writer = pool && createWriter(pool, config);
+    if (writer) await writer.validate();
+    if (config.outputDryRun) console.log('Output dry run enabled: database access and message acknowledgements are disabled.');
     if (stopping) return;
     const options = {...config.natsOptions};
     if (config.natsCreds) options.authenticator = credsAuthenticator(Buffer.from(config.natsCreds));
@@ -60,12 +61,12 @@ async function run(config, dependencies = {}) {
       console.log('Bridge running. Waiting for JSON messages.');
       for await (const message of messages) {
         if (stopping) break;
-        const progress = setInterval(() => message.working(), Math.max(100, Math.floor(ackWaitMillis / 3)));
+        const progress = config.outputDryRun ? undefined : setInterval(() => message.working(), Math.max(100, Math.floor(ackWaitMillis / 3)));
         try {
           await processMessage(message, writer, config);
         } catch {
           console.error(`Message write failed: sequence=${message.seq}; will retry.`);
-          message.nak(config.retryDelay);
+          if (!config.outputDryRun) message.nak(config.retryDelay);
           await delay(config.retryDelay, undefined, {signal: abort.signal}).catch(() => {});
         } finally {
           clearInterval(progress);
@@ -81,7 +82,7 @@ async function run(config, dependencies = {}) {
     messages?.stop();
     try { if (nc && !nc.isClosed()) await nc.drain(); }
     finally {
-      await pool.end();
+      await pool?.end();
       clearTimeout(shutdownTimer);
       process.off('SIGINT', onSignal);
       process.off('SIGTERM', onSignal);

@@ -37,6 +37,8 @@ Nested objects are traversed recursively, arrays use zero-based index segments, 
 
 All configuration comes from environment variables. Empty variables use their fallback/default. Boolean values accept `true/false`, `1/0`, `yes/no`, and `on/off`.
 
+Set `OUTPUT_DRY_RUN=true` to parse, filter and flatten messages without connecting to PostgreSQL or writing data. `POSTGRES_URL` is optional in this mode. No acknowledgements are sent, including progress, negative and terminal acknowledgements for filtered or invalid messages. `VERBOSE=true` logs dry-run message sequences and row counts. Messages remain pending and may be redelivered; the consumer's `max_ack_pending` and delivery limits still apply.
+
 | Variable | Default | Description |
 | --- | --- | --- |
 | NATS_SERVERS | nats://127.0.0.1:4222 | Comma-separated servers; `NATS_URL` fallback alias. |
@@ -54,7 +56,8 @@ All configuration comes from environment variables. Empty variables use their fa
 | TOPIC_PREFIX | empty | Path prefix with optional `{path/to/value}` message placeholders. |
 | INPUT_FILTER | empty | JavaScript expression using `msg`; only truthy results are stored. |
 | OUTPUT_KEYS | empty | Comma-separated message paths to output; empty selects the whole message. |
-| POSTGRES_URL | required | PostgreSQL connection URL; `DATABASE_URL` fallback alias. URL supports PostgreSQL TLS options. |
+| OUTPUT_DRY_RUN | false | Skip database connections and writes, and all message acknowledgements. |
+| POSTGRES_URL | required unless dry run | PostgreSQL connection URL; `DATABASE_URL` fallback alias. URL supports PostgreSQL TLS options. |
 | POSTGRES_SCHEMA | public | Schema name. |
 | POSTGRES_TABLE | messages | Table name, separate from schema. |
 | POSTGRES_TIME_COLUMN | time | Timestamp column. |

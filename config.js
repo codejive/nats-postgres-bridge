@@ -15,6 +15,7 @@ function loadConfig(env = process.env) {
   const config = {
     prefix: get('TOPIC_PREFIX', ''),
     outputKeys: get('OUTPUT_KEYS', '').split(',').map(value => value.trim()).filter(Boolean),
+    outputDryRun: bool('OUTPUT_DRY_RUN', false),
     verbose: bool('VERBOSE', false),
     stream: get('NATS_STREAM'),
     consumer: get('NATS_CONSUMER'),
@@ -50,11 +51,13 @@ function loadConfig(env = process.env) {
       throw new Error('INPUT_FILTER must be a valid JavaScript expression.');
     }
   }
-  for (const [name, value] of Object.entries({NATS_STREAM: config.stream, NATS_CONSUMER: config.consumer, POSTGRES_URL: config.postgres.connectionString})) {
+  for (const [name, value] of Object.entries({NATS_STREAM: config.stream, NATS_CONSUMER: config.consumer, ...(!config.outputDryRun && {POSTGRES_URL: config.postgres.connectionString})})) {
     if (!value) throw new Error(name + ' is required.');
   }
-  const url = new URL(config.postgres.connectionString);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('POSTGRES_URL must be a PostgreSQL URL.');
+  if (!config.outputDryRun) {
+    const url = new URL(config.postgres.connectionString);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('POSTGRES_URL must be a PostgreSQL URL.');
+  }
   if (config.natsOptions.servers.some(server => !server)) throw new Error('NATS_SERVERS must contain nonempty server addresses.');
   for (const name of ['schema', 'table', 'timeColumn', 'topicColumn', 'valueColumn']) {
     if (config[name].includes('\0') || Buffer.byteLength(config[name]) > 63) throw new Error(name + ' is not a valid PostgreSQL identifier.');
