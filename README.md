@@ -11,7 +11,7 @@ NATS connection configuration and lifecycle handling follow [ewelink-nats-bridge
 3. Copy `.env.example` to `.env`, and configure service URLs, stream and consumer names. NATS and PostgreSQL must be reachable from the bridge; container localhost refers to that container.
 4. Run `npm ci`, then `node --env-file=.env bridge.js`, or run `docker compose up -d --build`. `npm start` reads the process environment; it does not load `.env` automatically.
 
-For the eWeLink NATS producer, capture raw JSON subjects such as `ewelink.*.state.raw`, and optionally set `PUBLISH_RAW_STATE=only`. Raw payloads contain the full action, including `deviceid` and `params`; individual-key publications are not JSON objects. The source subject is not added to stored keys. Use an appropriate static prefix if you need a namespace.
+For the eWeLink NATS producer, capture raw JSON subjects such as `ewelink.*.state.raw`, and optionally set `PUBLISH_RAW_STATE=only`. Raw payloads contain the full action, including `deviceid` and `params`; individual-key publications are not JSON objects. The source subject is not added to stored keys. Use a prefix such as `ewelink/{deviceid}/state` if you need a namespace per device.
 
 ## Data mapping
 
@@ -27,7 +27,9 @@ With `TOPIC_PREFIX=house`, `{"sensor":{"temperature":22.5,"online":true,"missing
 
 All rows share the original JetStream message timestamp, obtained from `timestampNanos`, including replays and redeliveries. Nanoseconds are rounded to PostgreSQL microseconds without converting the fractional timestamp through JavaScript Date. See the [NATS message API](https://nats-io.github.io/nats.js/jetstream/types/JsMsg.html).
 
-Nested objects are traversed recursively, arrays use zero-based index segments, strings are stored unchanged, and numbers and booleans use JavaScript string conversion. Numbers follow JSON.parse/JavaScript numeric precision. Empty containers produce no rows; an entirely empty message is acknowledged without a database write. Literal `~` and `/` in object keys are escaped to `~0` and `~1`. Dots remain literal. Empty property names are preserved as empty path segments. Leading/trailing slashes on the static prefix are removed.
+Nested objects are traversed recursively, arrays use zero-based index segments, strings are stored unchanged, and numbers and booleans use JavaScript string conversion. Numbers follow JSON.parse/JavaScript numeric precision. Empty containers produce no rows; an entirely empty message is acknowledged without a database write. Literal `~` and `/` in object keys are escaped to `~0` and `~1`. Dots remain literal. Empty property names are preserved as empty path segments. Leading/trailing slashes on the expanded prefix are removed.
+
+`TOPIC_PREFIX` can include `{path/to/value}` placeholders resolved against the original message before flattening. For example, `house/{deviceId}/state` with `{"deviceId":"lamp","power":true}` stores topics `house/lamp/state/deviceId` and `house/lamp/state/power`. Use `house/{device/id}/state` for `{"device":{"id":"lamp"},"power":true}`. Referenced fields remain in the stored rows. Multiple placeholders and array indexes such as `{devices/0/id}` are supported; use `~1` for `/` and `~0` for `~` in property names. Values must be strings, numbers or booleans and are converted to text, with `/` and `~` escaped as above. Empty strings, `0` and `false` are valid. Replacement values are not expanded again. Missing paths, nulls, objects and arrays terminate delivery without a database write, with an error logged by subject and sequence.
 
 ## Environment variables
 
@@ -47,7 +49,7 @@ All configuration comes from environment variables. Empty variables use their fa
 | NATS_MAX_RECONNECT_ATTEMPTS | -1 | Per-server retry limit; -1 unlimited, 0 disables retries. |
 | NATS_STREAM / NATS_CONSUMER | required | Existing stream and durable pull consumer. |
 | NATS_BATCH_SIZE | 100 | Consumer buffer size; processing is sequential. |
-| TOPIC_PREFIX | empty | Static path prefix. |
+| TOPIC_PREFIX | empty | Path prefix with optional `{path/to/value}` message placeholders. |
 | POSTGRES_URL | required | PostgreSQL connection URL; `DATABASE_URL` fallback alias. URL supports PostgreSQL TLS options. |
 | POSTGRES_SCHEMA | public | Schema name. |
 | POSTGRES_TABLE | messages | Table name, separate from schema. |

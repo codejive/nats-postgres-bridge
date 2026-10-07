@@ -11,7 +11,20 @@ function flatten(object, prefix = '') {
       rows.push([path.join('/'), value === null ? null : String(value)]);
     }
   };
-  const base = prefix.replace(/^\/+|\/+$/g, '');
+  const base = prefix.replace(/\{([^{}]+)\}/g, (_, path) => {
+    let value = object;
+    for (const segment of path.split('/')) {
+      const key = segment.replace(/~1/g, '/').replace(/~0/g, '~');
+      if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {
+        throw new Error('Topic prefix placeholder does not resolve to a message value.');
+      }
+      value = value[key];
+    }
+    if (value === null || typeof value === 'object') {
+      throw new Error('Topic prefix placeholder must reference a string, number or boolean.');
+    }
+    return escape(String(value));
+  }).replace(/^\/+|\/+$/g, '');
   for (const [key, value] of Object.entries(object)) visit(value, [...(base ? [base] : []), escape(key)]);
   return rows;
 }

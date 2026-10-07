@@ -5,7 +5,7 @@ async function processMessage(message, writer, config, logger = console) {
   try {
     rows = flatten(message.json(), config.prefix);
   } catch {
-    logger.error(`Invalid JSON object: subject=${message.subject} sequence=${message.seq}; terminating delivery.`);
+    logger.error(`Invalid JSON object or topic prefix placeholder: subject=${message.subject} sequence=${message.seq}; terminating delivery.`);
     message.term();
     return;
   }

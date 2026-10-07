@@ -15,6 +15,40 @@ test('flatten nested objects, arrays, escaped keys, empty containers and typed l
   assert.deepEqual(flatten({a: {}, b: []}), []);
   for (const value of [null, [], true, 'x']) assert.throws(() => flatten(value));
 });
+test('topic prefix resolves top-level and nested values from the original message', () => {
+  assert.deepEqual(flatten({deviceId: 'lamp', state: true}, '/house/{deviceId}/state/'), [
+    ['house/lamp/state/deviceId', 'lamp'], ['house/lamp/state/state', 'true']
+  ]);
+  assert.deepEqual(flatten({device: {id: 'lamp'}, state: true}, 'house/{device/id}/state'), [
+    ['house/lamp/state/device/id', 'lamp'], ['house/lamp/state/state', 'true']
+  ]);
+  assert.deepEqual(flatten({ids: [0], online: false, 'x/y~z': 'a/b~c'}, '{ids/0}/{online}/{x~1y~0z}'), [
+    ['0/false/a~1b~0c/ids/0', '0'], ['0/false/a~1b~0c/online', 'false'],
+    ['0/false/a~1b~0c/x~1y~0z', 'a/b~c']
+  ]);
+  assert.deepEqual(flatten({id: '{other}', other: 'lamp'}, '{id}/{id}'), [
+    ['{other}/{other}/id', '{other}'], ['{other}/{other}/other', 'lamp']
+  ]);
+});
+
+test('topic prefix rejects missing, inherited, null and container values', () => {
+  for (const prefix of ['{missing}', '{device/missing}', '{device/id/missing}', '{nil}', '{device}', '{items}', '{toString}']) {
+    assert.throws(() => flatten({device: {id: 'lamp'}, nil: null, items: []}, prefix));
+  }
+});
+
+test('expanded prefixes reach the writer before acknowledgement; unresolved prefixes terminate without writing', async () => {
+  const calls = [];
+  const message = {json: () => ({device: {id: 'lamp'}, state: true}), timestampNanos: 0n,
+    ack: () => calls.push('ack'), term: () => calls.push('term')};
+  const writer = {write: async (time, rows) => calls.push(rows)};
+  await processMessage(message, writer, {prefix: 'house/{device/id}/state'});
+  assert.deepEqual(calls, [[['house/lamp/state/device/id', 'lamp'], ['house/lamp/state/state', 'true']], 'ack']);
+  calls.length = 0;
+  await processMessage(message, writer, {prefix: '{missing}'}, {error: () => {}});
+  assert.deepEqual(calls, ['term']);
+});
+
 test('timestamp retains microseconds and rounds nanoseconds across second boundaries', () => {
   assert.equal(receiptTimestamp(1700000000123456789n), '2023-11-14T22:13:20.123457Z');
   assert.equal(receiptTimestamp(1700000000999999999n), '2023-11-14T22:13:21.000000Z');
