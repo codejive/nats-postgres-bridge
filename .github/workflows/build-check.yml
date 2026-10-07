@@ -36,6 +36,7 @@ jobs:
           node --check flatten.js
           node --check database.js
           node --check processor.js
+          node --check errors.js
 
       - name: Run tests
         run: npm test
@@ -53,4 +54,9 @@ jobs:
           push: false
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.IMAGE_NAME }}:ci
+
+      - name: Verify runtime modules in Docker image
+        run: |
+          docker build --tag "$IMAGE_NAME:smoke" .
+          docker run --rm --entrypoint node "$IMAGE_NAME:smoke" -e "require('./bridge')"
 
